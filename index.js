@@ -1,5 +1,6 @@
 require('dotenv').config();
 const axios = require('axios');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -47,10 +48,9 @@ const PROXY_LIST = process.env.PROXY_URL
 
 let proxyIndex = 0;
 
-/** Returns an axios-compatible proxy config object for the current proxy. */
-function currentProxy() {
-    const url = new URL(PROXY_LIST[proxyIndex % PROXY_LIST.length]);
-    return { protocol: url.protocol.replace(':', ''), host: url.hostname, port: parseInt(url.port, 10) };
+/** Returns an HttpsProxyAgent for the current proxy entry. */
+function currentAgent() {
+    return new HttpsProxyAgent(PROXY_LIST[proxyIndex % PROXY_LIST.length]);
 }
 
 /** Rotates to the next proxy and logs the switch. */
@@ -131,22 +131,23 @@ async function postToDiscord(embed) {
 // ── Main polling loop ─────────────────────────────────────────────────────────
 
 async function poll() {
+    const proxyUrl = PROXY_LIST[proxyIndex % PROXY_LIST.length];
     try {
-        const proxy = currentProxy();
         const res = await axios.get(OREF_URL, {
             headers: OREF_HEADERS,
-            proxy,
-            timeout: 5000,
+            httpsAgent: currentAgent(),
+            proxy: false,          // disable axios built-in proxy (causes 400)
+            timeout: 10000,        // proxy adds ~300ms latency, give it room
             validateStatus: () => true,
         });
 
-        if (res.status === 403) {
-            rotateProxy(`HTTP 403 from ${proxy.host}:${proxy.port}`);
+        if (res.status === 403 || res.status === 400) {
+            rotateProxy(`HTTP ${res.status}`);
             return;
         }
 
         if (res.status !== 200) {
-            console.error(`[ERROR] Oref API returned HTTP ${res.status} via ${proxy.host}:${proxy.port}`);
+            console.error(`[ERROR] Oref API returned HTTP ${res.status} via ${proxyUrl}`);
             return;
         }
 

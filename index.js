@@ -1,6 +1,6 @@
 require('dotenv').config();
 const axios = require('axios');
-const { HttpsProxyAgent } = require('https-proxy-agent');
+const HttpsProxyAgent = require('https-proxy-agent');
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 

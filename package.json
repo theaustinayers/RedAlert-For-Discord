@@ -1,15 +1,14 @@
 {
   "name": "redalert-discord-bot",
   "version": "1.0.0",
-  "description": "Posts Israeli Red Alert (Tzeva Adom) notifications to a Discord webhook via the pikud-haoref-api.",
+  "description": "Posts Israeli Red Alert (Tzeva Adom) notifications to a Discord webhook by polling the Oref API directly.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "axios": "^1.7.2",
-    "dotenv": "^16.4.5",
-    "pikud-haoref-api": "^5.0.3"
+    "dotenv": "^16.4.5"
   },
   "license": "MIT"
 }

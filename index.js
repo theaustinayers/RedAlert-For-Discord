@@ -33,10 +33,16 @@ const OREF_HEADERS = {
 const PROXY_LIST = process.env.PROXY_URL
     ? [process.env.PROXY_URL]
     : [
-        'http://51.85.49.118:9482',   // HTTP/SOCKS4/SOCKS5 — 100% uptime, 986 Kbps
-        'http://51.85.49.118:9267',   // HTTP/SOCKS4/SOCKS5 — 100% uptime, 902 Kbps
-        'http://51.85.49.118:8053',   // HTTP/SOCKS4/SOCKS5 — 100% uptime, 629 Kbps
-        'http://51.85.49.118:22901',  // HTTP/SOCKS4/SOCKS5 — 100% uptime, 540 Kbps
+        // Verified working 2026-03-13 — all HTTP 200 from oref.org.il
+        'http://51.85.49.118:8053',   // 270ms
+        'http://51.85.49.118:39220',  // 305ms
+        'http://51.85.49.118:176',    // 299ms
+        'http://51.85.49.118:2887',   // 303ms
+        'http://51.85.49.118:6116',   // 303ms
+        'http://51.85.49.118:50918',  // 309ms
+        'http://51.85.49.118:8050',   // 307ms
+        'http://51.85.49.118:1521',   // 311ms
+        'http://51.85.49.118:22901',  // 312ms
     ];
 
 let proxyIndex = 0;

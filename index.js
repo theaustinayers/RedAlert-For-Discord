@@ -25,7 +25,35 @@ const OREF_HEADERS = {
     'Accept-Language':  'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7',
 };
 
-// ── Alert type → human-readable label + Discord colour ───────────────────────
+// ── Israeli proxy rotation ────────────────────────────────────────────────────
+// The Oref API is geo-restricted to Israeli IPs.
+// PROXY_URL env var overrides the built-in list (format: http://host:port).
+// The bot rotates through the list automatically on 403 or connection failure.
+
+const PROXY_LIST = process.env.PROXY_URL
+    ? [process.env.PROXY_URL]
+    : [
+        'http://51.85.49.118:9482',   // HTTP/SOCKS4/SOCKS5 — 100% uptime, 986 Kbps
+        'http://51.85.49.118:9267',   // HTTP/SOCKS4/SOCKS5 — 100% uptime, 902 Kbps
+        'http://51.85.49.118:8053',   // HTTP/SOCKS4/SOCKS5 — 100% uptime, 629 Kbps
+        'http://51.85.49.118:22901',  // HTTP/SOCKS4/SOCKS5 — 100% uptime, 540 Kbps
+    ];
+
+let proxyIndex = 0;
+
+/** Returns an axios-compatible proxy config object for the current proxy. */
+function currentProxy() {
+    const url = new URL(PROXY_LIST[proxyIndex % PROXY_LIST.length]);
+    return { protocol: url.protocol.replace(':', ''), host: url.hostname, port: parseInt(url.port, 10) };
+}
+
+/** Rotates to the next proxy and logs the switch. */
+function rotateProxy(reason) {
+    const failed = PROXY_LIST[proxyIndex % PROXY_LIST.length];
+    proxyIndex++;
+    const next = PROXY_LIST[proxyIndex % PROXY_LIST.length];
+    console.warn(`[PROXY] ${reason} — rotating from ${failed} → ${next}`);
+}
 
 // ── Alert category → human-readable label + Discord colour ───────────────────
 // Category IDs as used by the Oref API (field: "cat")
@@ -98,14 +126,21 @@ async function postToDiscord(embed) {
 
 async function poll() {
     try {
+        const proxy = currentProxy();
         const res = await axios.get(OREF_URL, {
             headers: OREF_HEADERS,
-            timeout: 4000,
-            validateStatus: () => true, // handle all status codes manually
+            proxy,
+            timeout: 5000,
+            validateStatus: () => true,
         });
 
+        if (res.status === 403) {
+            rotateProxy(`HTTP 403 from ${proxy.host}:${proxy.port}`);
+            return;
+        }
+
         if (res.status !== 200) {
-            console.error(`[ERROR] Oref API returned HTTP ${res.status}`);
+            console.error(`[ERROR] Oref API returned HTTP ${res.status} via ${proxy.host}:${proxy.port}`);
             return;
         }
 
@@ -126,7 +161,8 @@ async function poll() {
         await postToDiscord(buildEmbed(alert));
 
     } catch (err) {
-        console.error('[ERROR] Poll failed:', err.message);
+        // Connection-level failure (ECONNREFUSED, ETIMEDOUT, etc.) — rotate proxy
+        rotateProxy(err.message);
     } finally {
         setTimeout(poll, POLL_INTERVAL);
     }
@@ -135,4 +171,5 @@ async function poll() {
 // ── Startup ───────────────────────────────────────────────────────────────────
 
 console.log(`[INFO] RedAlert Discord Bot starting — polling every ${POLL_INTERVAL}ms`);
+console.log(`[INFO] Proxy pool: ${PROXY_LIST.length} proxies. Starting with ${PROXY_LIST[0]}`);
 poll();

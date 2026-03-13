@@ -134,46 +134,89 @@ async function postToDiscord(embed) {
 
 // ── Main polling loop ─────────────────────────────────────────────────────────
 
-async function poll() {
-    const proxyUrl = PROXY_LIST[proxyIndex % PROXY_LIST.length];
-    try {
-        const res = await axios.get(OREF_URL, {
-            headers: OREF_HEADERS,
-            httpsAgent: currentAgent(),
-            proxy: false,          // disable axios built-in proxy (causes 400)
-            timeout: 10000,        // proxy adds ~300ms latency, give it room
-            validateStatus: () => true,
-        });
+/**
+ * Attempts a single GET to the Oref API.
+ * Returns the axios response, or null on connection failure.
+ * @param {object|null} agent - SocksProxyAgent or null for direct
+ */
+async function fetchAlerts(agent) {
+    return axios.get(OREF_URL, {
+        headers: OREF_HEADERS,
+        ...(agent ? { httpsAgent: agent, proxy: false } : {}),
+        timeout: 10000,
+        validateStatus: () => true,
+    });
+}
 
-        if (res.status === 403 || res.status === 400) {
-            rotateProxy(`HTTP ${res.status}`);
+async function poll() {
+    try {
+        // ── 1. Try direct (no proxy) ─────────────────────────────────────────
+        let res, usedProxy = false;
+        try {
+            res = await fetchAlerts(null);
+        } catch (e) {
+            res = null; // direct failed — fall through to proxy
+        }
+
+        // ── 2. Fall back to proxy pool only if direct returned 403 or failed ─
+        if (!res || res.status === 403) {
+            if (res?.status === 403) {
+                console.log('[INFO] Direct request blocked (403) — trying proxy pool');
+            }
+            let attempts = 0;
+            const maxAttempts = PROXY_LIST.length;
+            while (attempts < maxAttempts) {
+                try {
+                    res = await fetchAlerts(currentAgent());
+                    if (res.status !== 403 && res.status !== 400) {
+                        usedProxy = true;
+                        break; // got a usable response
+                    }
+                    rotateProxy(`HTTP ${res.status}`);
+                } catch (e) {
+                    rotateProxy(e.code || e.message);
+                }
+                attempts++;
+            }
+        }
+
+        if (!res) {
+            console.error('[ERROR] All fetch attempts failed');
             return;
         }
 
         if (res.status !== 200) {
-            console.error(`[ERROR] Oref API returned HTTP ${res.status} via ${proxyUrl}`);
+            console.error(`[ERROR] Oref API returned HTTP ${res.status}`);
             return;
         }
 
-        // API returns an empty body / whitespace when no alerts are active
-        const raw = typeof res.data === 'string' ? res.data.trim() : JSON.stringify(res.data).trim();
-        if (!raw || raw === '{}' || raw === 'null') return;
+        // ── 3. Parse response ────────────────────────────────────────────────
+        let raw = typeof res.data === 'string' ? res.data.trim() : '';
+        if (!raw && typeof res.data === 'object') raw = JSON.stringify(res.data).trim();
+        if (!raw || raw === '{}' || raw === 'null') return; // no active alerts
 
-        const alert = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+        let alert;
+        try {
+            alert = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+        } catch (e) {
+            // Proxy returned garbage instead of JSON — rotate and move on
+            rotateProxy(`Bad JSON: ${res.data?.toString().slice(0, 40)}`);
+            return;
+        }
+
         if (!alert?.data?.length) return;
 
-        // De-duplicate by alert ID (stable for the life of an active alert)
+        // ── 4. De-duplicate and post ─────────────────────────────────────────
         const alertId = String(alert.id ?? `${alert.cat}|${[...alert.data].sort().join(',')}`);
         if (alertId === lastPostedId) return;
 
         lastPostedId = alertId;
-        console.log(`[ALERT] id:${alertId}  cat:${alert.cat}  cities:${alert.data.join(', ')}`);
+        console.log(`[ALERT] id:${alertId}  cat:${alert.cat}  via:${usedProxy ? 'proxy' : 'direct'}  cities:${alert.data.join(', ')}`);
 
         await postToDiscord(buildEmbed(alert));
 
     } catch (err) {
-        // Connection-level failure (ECONNREFUSED, ETIMEDOUT, etc.) — rotate proxy
-        rotateProxy(err.message);
+        console.error('[ERROR] Unexpected poll error:', err.message);
     } finally {
         setTimeout(poll, POLL_INTERVAL);
     }
@@ -182,5 +225,5 @@ async function poll() {
 // ── Startup ───────────────────────────────────────────────────────────────────
 
 console.log(`[INFO] RedAlert Discord Bot starting — polling every ${POLL_INTERVAL}ms`);
-console.log(`[INFO] Proxy pool: ${PROXY_LIST.length} proxies. Starting with ${PROXY_LIST[0]}`);
+console.log(`[INFO] Strategy: direct first, proxy pool (${PROXY_LIST.length}) on 403`);
 poll();

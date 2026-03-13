@@ -1,3 +1,6 @@
+// Accept self-signed / unverifiable certs (Docker container has no root CA bundle)
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 require('dotenv').config();
 const axios = require('axios');
 const { SocksProxyAgent } = require('socks-proxy-agent');
@@ -51,7 +54,7 @@ let proxyIndex = 0;
 
 /** Returns a SocksProxyAgent for the current proxy entry. */
 function currentAgent() {
-    return new SocksProxyAgent(PROXY_LIST[proxyIndex % PROXY_LIST.length], { rejectUnauthorized: false });
+    return new SocksProxyAgent(PROXY_LIST[proxyIndex % PROXY_LIST.length]);
 }
 
 /** Rotates to the next proxy and logs the switch. */
